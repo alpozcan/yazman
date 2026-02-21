@@ -9,7 +9,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.7.0"),
         .package(url: "https://github.com/onevcat/Rainbow.git", from: "4.0.0"),
-        .package(path: "../OllamaSwift"),
+        .package(url: "https://github.com/alpozcan/OllamaSwift.git", from: "1.0.0"),
     ],
     targets: [
         .executableTarget(
