@@ -5,7 +5,7 @@
   </p>
   <p align="center">
     <a href="https://github.com/alpozcan/muharrir/releases"><img src="https://img.shields.io/github/v/release/alpozcan/muharrir?style=flat-square&label=s%C3%BCr%C3%BCm" alt="Sürüm"></a>
-    <a href="https://swiftpackageindex.com/alpozcan/muharrir"><img src="https://img.shields.io/badge/SPM-uyumlu-orange?style=flat-square" alt="Swift Package Manager"></a>
+    <a href="https://github.com/alpozcan/muharrir/blob/main/Package.swift"><img src="https://img.shields.io/badge/SPM-uyumlu-orange?style=flat-square" alt="Swift Package Manager"></a>
     <a href="https://github.com/yonaskolb/Mint"><img src="https://img.shields.io/badge/Mint-uyumlu-brightgreen?style=flat-square" alt="Mint"></a>
     <a href="https://github.com/alpozcan/homebrew-muharrir/blob/main/Formula/muharrir.rb"><img src="https://img.shields.io/badge/Homebrew-tap-FBB040?style=flat-square&logo=homebrew&logoColor=white" alt="Homebrew"></a>
     <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-6.0+-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.0+"></a>
