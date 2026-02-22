@@ -1,0 +1,46 @@
+# SwiftLint configuration for Muharrir
+
+disabled_rules:
+  - trailing_comma
+  - identifier_name
+  - nesting
+  - todo
+  - no_space_in_method_call
+
+opt_in_rules:
+  - closure_spacing
+  - empty_count
+  - explicit_init
+  - first_where
+  - joined_default_parameter
+  - redundant_nil_coalescing
+  - sorted_imports
+
+line_length:
+  warning: 120
+  error: 150
+  ignores_comments: true
+  ignores_urls: true
+
+type_body_length:
+  warning: 300
+  error: 500
+
+file_length:
+  warning: 500
+  error: 1000
+
+function_body_length:
+  warning: 50
+  error: 100
+
+force_cast:
+  severity: warning
+
+force_unwrapping:
+  severity: warning
+
+excluded:
+  - .build
+  - Package.swift
+  - Tests

@@ -35,7 +35,12 @@ struct Search: AsyncParsableCommand {
         for (i, m) in matches.enumerated() {
             Terminal.panel(
                 "Sonuç \(i + 1)",
-                content: "\(m.title)\n\(String(m.text.prefix(300)))...\n\nBenzerlik: \(String(format: "%.4f", m.similarity))"
+                content: """
+                \(m.title)
+                \(String(m.text.prefix(300)))...
+
+                Benzerlik: \(String(format: "%.4f", m.similarity))
+                """
             )
             print()
         }

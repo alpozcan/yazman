@@ -132,7 +132,10 @@ actor VectorStore {
                 let tentativeEnd = text.index(start, offsetBy: chunkSize)
                 // Try to break at sentence boundary
                 let searchStart = text.index(start, offsetBy: chunkSize / 2)
-                let searchRange = searchStart..<min(text.index(tentativeEnd, offsetBy: 100, limitedBy: text.endIndex) ?? text.endIndex, text.endIndex)
+                let searchEndIndex = text.index(
+                    tentativeEnd, offsetBy: 100, limitedBy: text.endIndex
+                ) ?? text.endIndex
+                let searchRange = searchStart..<min(searchEndIndex, text.endIndex)
 
                 if let dotPos = text.range(of: ". ", options: .backwards, range: searchRange) {
                     chunkEnd = dotPos.upperBound
