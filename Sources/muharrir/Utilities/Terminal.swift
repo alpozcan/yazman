@@ -146,16 +146,40 @@ final class Spinner: @unchecked Sendable {
         return 80
     }()
 
-    /// Extract a scrolling window from text, wrapping around at the end.
-    private func scrollingWindow(_ text: String, offset: Int, width: Int) -> String {
-        let chars = Array(text)
-        guard !chars.isEmpty, width > 0 else { return "" }
-        let wrappedOffset = chars.count > width ? offset % chars.count : 0
-        var window = ""
-        for i in 0..<min(width, chars.count) {
-            window.append(chars[(wrappedOffset + i) % chars.count])
+    /// Reveal words progressively, fitting within maxWidth.
+    /// Returns the visible portion and whether the snippet is fully revealed.
+    private func wordReveal(_ text: String, wordCount: Int, maxWidth: Int) -> (text: String, done: Bool) {
+        guard maxWidth > 0 else { return ("", true) }
+        let words = text.split(separator: " ")
+        guard !words.isEmpty else { return ("", true) }
+
+        let visibleCount = min(wordCount, words.count)
+        var result = ""
+        for word in words.prefix(visibleCount) {
+            let candidate = result.isEmpty ? String(word) : "\(result) \(word)"
+            if candidate.count > maxWidth {
+                // Truncate last word to fit
+                let remaining = maxWidth - result.count - 1
+                if remaining > 2, result.isEmpty {
+                    return (String(word.prefix(remaining - 1)) + "…", false)
+                }
+                break
+            }
+            result = candidate
         }
-        return window
+
+        let fullyRevealed = visibleCount >= words.count && result.count <= maxWidth
+        return (result, fullyRevealed)
+    }
+
+    /// Apply fade edges: dim the first and last few characters.
+    private func fadeEdges(_ text: String, edgeWidth: Int = 3) -> String {
+        guard text.count > edgeWidth * 2 else { return "\u{1B}[2m\(text)\u{1B}[22m" }
+        let chars = Array(text)
+        let head = String(chars.prefix(edgeWidth))
+        let middle = String(chars[edgeWidth..<chars.count - edgeWidth])
+        let tail = String(chars.suffix(edgeWidth))
+        return "\u{1B}[2m\(head)\u{1B}[22m\(middle)\u{1B}[2m\(tail)\u{1B}[22m"
     }
 
     private func tick() {
@@ -163,17 +187,13 @@ final class Spinner: @unchecked Sendable {
         let frame = frames[frameIndex % frames.count]
         let msg = messages[messageIndex % messages.count]
         let fullSnip = snippets.isEmpty ? "" : snippets[snippetIndex % snippets.count]
-        let offset = scrollOffset
+        let wordCount = scrollOffset
         frameIndex += 1
         tickCount += 1
-        // Scroll snippet by 1 char every 2 ticks (~200ms per char)
-        if tickCount % 2 == 0 { scrollOffset += 1 }
+        // Reveal one word every 3 ticks (~300ms per word)
+        if tickCount % 3 == 0 { scrollOffset += 1 }
         if tickCount % 100 == 0 { // rotate message every ~10s
             messageIndex += 1
-            if !snippets.isEmpty {
-                snippetIndex += 1
-                scrollOffset = 0
-            }
         }
         lock.unlock()
 
@@ -182,22 +202,35 @@ final class Spinner: @unchecked Sendable {
         if !label.isEmpty { prefix += "\(label) · " }
         prefix += msg
 
-        let snipWindow = fullSnip.isEmpty ? "" : scrollingWindow(
-            fullSnip, offset: offset,
-            width: maxWidth - prefix.count - 3 // 3 = " · "
-        )
+        // Word-by-word reveal with auto-advance on completion
+        var snipText = ""
+        if !fullSnip.isEmpty {
+            let available = maxWidth - prefix.count - 3 // 3 = " · "
+            let (revealed, done) = wordReveal(fullSnip, wordCount: wordCount, maxWidth: available)
+            snipText = revealed
 
-        var plain = prefix
-        if !snipWindow.isEmpty { plain += " · \(snipWindow)" }
-        if plain.count > maxWidth {
-            plain = String(plain.prefix(maxWidth - 1)) + "…"
+            if done {
+                // All words revealed — advance to next snippet after a pause
+                lock.lock()
+                if tickCount % 3 == 0 {
+                    if !snippets.isEmpty { snippetIndex += 1 }
+                    scrollOffset = 1
+                }
+                lock.unlock()
+            }
         }
 
-        // Apply ANSI styling: bold label, dim snippet
-        let styled = applyStyle(plain, label: label, snippet: snipWindow)
+        var line = prefix
+        if !snipText.isEmpty { line += " · \(snipText)" }
+        if line.count > maxWidth {
+            line = String(line.prefix(maxWidth - 1)) + "…"
+        }
 
-        let line = "\r\u{1B}[2K\(styled)"
-        FileHandle.standardError.write(Data(line.utf8))
+        // Style: bold label, fade-edged snippet
+        let styled = applyStyle(line, label: label, snippet: snipText)
+
+        let output = "\r\u{1B}[2K\(styled)"
+        FileHandle.standardError.write(Data(output.utf8))
     }
 
     private func applyStyle(_ plain: String, label: String, snippet: String) -> String {
@@ -208,10 +241,8 @@ final class Spinner: @unchecked Sendable {
             )
         }
         if !snippet.isEmpty, let range = styled.range(of: snippet, options: .backwards) {
-            let text = styled[range]
-            styled = styled.replacingCharacters(
-                in: range, with: "\u{1B}[2m\(text)\u{1B}[22m"
-            )
+            let faded = fadeEdges(String(styled[range]))
+            styled = styled.replacingCharacters(in: range, with: faded)
         }
         return styled
     }
