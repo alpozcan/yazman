@@ -12,6 +12,7 @@ opt_in_rules:
   - empty_count
   - explicit_init
   - first_where
+  - force_unwrapping
   - joined_default_parameter
   - redundant_nil_coalescing
   - sorted_imports
@@ -35,10 +36,13 @@ function_body_length:
   error: 100
 
 force_cast:
-  severity: warning
+  severity: error
+
+force_try:
+  severity: error
 
 force_unwrapping:
-  severity: warning
+  severity: error
 
 excluded:
   - .build
