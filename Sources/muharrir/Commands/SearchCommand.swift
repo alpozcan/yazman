@@ -1,5 +1,6 @@
 import ArgumentParser
 import Ollama
+import OSLog
 
 struct Search: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -13,7 +14,18 @@ struct Search: AsyncParsableCommand {
     var count: Int = 5
 
     func run() async throws {
-        let client = await MainActor.run { Ollama.Client.default }
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        Logger.general.info("search command started: query=\"\(query)\", count=\(count)")
+
+        let client = await MainActor.run { Config.ollamaClient }
+
+        guard await Lifecycle.waitUntilReady(client) else {
+            Terminal.error("Ollama başlatılamadı. Kontrol et: brew services info ollama")
+            throw ExitCode.failure
+        }
+
         let store = VectorStore(client: client)
         try await store.load()
 
@@ -44,5 +56,8 @@ struct Search: AsyncParsableCommand {
             )
             print()
         }
+
+        let elapsed = clock.now - start
+        Logger.general.info("search command completed in \(elapsed)")
     }
 }

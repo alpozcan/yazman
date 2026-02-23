@@ -1,5 +1,6 @@
 import ArgumentParser
 import Ollama
+import OSLog
 
 struct Stats: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -7,7 +8,9 @@ struct Stats: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let client = await MainActor.run { Ollama.Client.default }
+        Logger.general.info("stats command started")
+
+        let client = await MainActor.run { Config.ollamaClient }
         let store = VectorStore(client: client)
         try await store.load()
 
@@ -34,5 +37,7 @@ struct Stats: AsyncParsableCommand {
         } else {
             Terminal.error("  Ollama durumu:   çalışmıyor")
         }
+
+        Logger.general.info("stats command completed")
     }
 }

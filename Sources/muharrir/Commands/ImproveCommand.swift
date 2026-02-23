@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Ollama
+import OSLog
 
 struct Improve: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -11,10 +12,15 @@ struct Improve: AsyncParsableCommand {
     var article: URL
 
     func run() async throws {
-        let client = await MainActor.run { Ollama.Client.default }
+        let clock = ContinuousClock()
+        let start = clock.now
 
-        guard await client.isReachable() else {
-            Terminal.error("Ollama çalışmıyor. Başlat: brew services start ollama")
+        Logger.general.info("improve command started: \(article.lastPathComponent)")
+
+        let client = await MainActor.run { Config.ollamaClient }
+
+        guard await Lifecycle.waitUntilReady(client) else {
+            Terminal.error("Ollama başlatılamadı. Kontrol et: brew services info ollama")
             throw ExitCode.failure
         }
 
@@ -27,5 +33,8 @@ struct Improve: AsyncParsableCommand {
             client: client,
             store: store
         )
+
+        let elapsed = clock.now - start
+        Logger.general.info("improve command completed in \(elapsed)")
     }
 }

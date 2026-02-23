@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Ollama
+import OSLog
 
 struct Add: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -11,6 +12,11 @@ struct Add: AsyncParsableCommand {
     var paths: [URL]
 
     func run() async throws {
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        Logger.general.info("add command started: \(paths.count) files")
+
         try Config.ensureDirectories()
 
         var articles: [Article] = []
@@ -32,12 +38,21 @@ struct Add: AsyncParsableCommand {
         }
 
         if !articles.isEmpty {
+            let client = await MainActor.run { Config.ollamaClient }
+
+            guard await Lifecycle.waitUntilReady(client) else {
+                Terminal.error("Ollama başlatılamadı. Kontrol et: brew services info ollama")
+                throw ExitCode.failure
+            }
+
             Terminal.info("Embedding'ler oluşturuluyor...")
-            let client = await MainActor.run { Ollama.Client.default }
             let store = VectorStore(client: client)
             try await store.load()
             let chunks = try await store.indexArticles(articles)
             Terminal.success("\(articles.count) dosyadan \(chunks) chunk indekslendi")
         }
+
+        let elapsed = clock.now - start
+        Logger.general.info("add command completed in \(elapsed)")
     }
 }
