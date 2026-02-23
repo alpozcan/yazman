@@ -61,6 +61,20 @@ enum Checker {
         return paragraphs
     }
 
+    /// Build RAG context string from similar matches.
+    private static func buildRAGContext(
+        paragraphs: [String], store: VectorStore
+    ) async throws -> String {
+        let sample = paragraphs.prefix(3).joined(separator: " ")
+        let matches = try await store.query(sample, nResults: 3)
+        guard !matches.isEmpty else { return "" }
+        var context = "\n\nReferans Türkçe teknik yazım örnekleri (bu tarz ve tonu referans al):\n"
+        for m in matches {
+            context += "\n---\nKaynak: \(m.title)\n\(String(m.text.prefix(500)))\n"
+        }
+        return context
+    }
+
     /// Check article wording paragraph by paragraph.
     static func checkWording(
         articlePath: URL,
@@ -83,18 +97,7 @@ enum Checker {
         Terminal.info("\(paragraphs.count) paragraf kontrol edilecek\n")
         Terminal.sizeWarning(charCount: mainText.count, paragraphCount: paragraphs.count)
 
-        // Get RAG context
-        var ragContext = ""
-        if useRAG {
-            let sample = paragraphs.prefix(3).joined(separator: " ")
-            let matches = try await store.query(sample, nResults: 3)
-            if !matches.isEmpty {
-                ragContext = "\n\nReferans Türkçe teknik yazım örnekleri (bu tarz ve tonu referans al):\n"
-                for m in matches {
-                    ragContext += "\n---\nKaynak: \(m.title)\n\(String(m.text.prefix(500)))\n"
-                }
-            }
-        }
+        let ragContext = useRAG ? try await buildRAGContext(paragraphs: paragraphs, store: store) : ""
 
         // Process in batches of 5
         let batchSize = 5

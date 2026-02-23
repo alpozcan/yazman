@@ -139,10 +139,8 @@ actor VectorStore {
                 topScores[minIdx] = sim
                 // Find new minimum
                 minIdx = 0
-                for j in 1..<k {
-                    if topScores[j] < topScores[minIdx] {
-                        minIdx = j
-                    }
+                for j in 1..<k where topScores[j] < topScores[minIdx] {
+                    minIdx = j
                 }
             }
         }
