@@ -1,5 +1,7 @@
+import Accelerate
 import Foundation
 import Ollama
+import OSLog
 
 /// Simple file-backed vector store using Ollama embeddings and cosine similarity.
 actor VectorStore {
@@ -12,6 +14,7 @@ actor VectorStore {
     }
 
     private var entries: [Entry] = []
+    private var entryIndex: [String: Int] = [:]
     private let client: Ollama.Client
     private let model: Model.ID
     private let storePath: URL
@@ -24,24 +27,53 @@ actor VectorStore {
 
     /// Load entries from disk.
     func load() throws {
-        guard FileManager.default.fileExists(atPath: storePath.path) else { return }
-        let data = try Data(contentsOf: storePath)
-        entries = try JSONDecoder().decode([Entry].self, from: data)
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            guard FileManager.default.fileExists(atPath: storePath.path) else { return }
+            do {
+                let data = try Data(contentsOf: storePath)
+                entries = try JSONDecoder().decode([Entry].self, from: data)
+                rebuildIndex()
+            } catch {
+                Logger.vectorStore.error("Failed to load vector store: \(error.localizedDescription)")
+            }
+        }
+        Logger.vectorStore.info("Loaded \(self.entries.count) entries in \(elapsed)")
+    }
+
+    private func rebuildIndex() {
+        entryIndex.removeAll(keepingCapacity: true)
+        for (i, entry) in entries.enumerated() {
+            entryIndex[entry.id] = i
+        }
     }
 
     /// Save entries to disk.
     func save() throws {
-        let data = try JSONEncoder().encode(entries)
-        try data.write(to: storePath)
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            do {
+                let data = try JSONEncoder().encode(entries)
+                try data.write(to: storePath)
+            } catch {
+                Logger.vectorStore.error("Failed to save vector store: \(error.localizedDescription)")
+            }
+        }
+        Logger.vectorStore.info("Saved \(self.entries.count) entries in \(elapsed)")
     }
 
     /// Index a batch of articles. Returns number of chunks indexed.
     func indexArticles(_ articles: [Article]) async throws -> Int {
+        let clock = ContinuousClock()
         var totalChunks = 0
+
+        let start = clock.now
 
         for article in articles {
             let chunks = chunkText(article.text)
             guard !chunks.isEmpty else { continue }
+
+            Logger.vectorStore.debug("Indexing \(chunks.count) chunks for \(article.url)")
 
             // Embed in batches of 10
             for batchStart in stride(from: 0, to: chunks.count, by: 10) {
@@ -55,16 +87,20 @@ actor VectorStore {
                     let idx = batchStart + j
                     let id = "\(article.url)::\(idx)"
 
-                    // Remove existing entry with same ID
-                    entries.removeAll { $0.id == id }
-
-                    entries.append(Entry(
+                    let newEntry = Entry(
                         id: id,
                         text: chunks[idx],
                         title: article.title,
                         url: article.url,
                         embedding: embedding
-                    ))
+                    )
+
+                    if let existingIdx = entryIndex[id] {
+                        entries[existingIdx] = newEntry
+                    } else {
+                        entryIndex[id] = entries.count
+                        entries.append(newEntry)
+                    }
                 }
             }
 
@@ -72,31 +108,65 @@ actor VectorStore {
         }
 
         try save()
+
+        let elapsed = clock.now - start
+        Logger.vectorStore.info("Indexed \(articles.count) articles (\(totalChunks) chunks) in \(elapsed)")
         return totalChunks
     }
 
-    /// Find the most similar entries to a query.
+    /// Find the most similar entries to a query using partial sort (O(n + k log k)).
     func query(_ text: String, nResults: Int = 5) async throws -> [SearchResult] {
         guard !entries.isEmpty else { return [] }
+
+        let clock = ContinuousClock()
+        let start = clock.now
 
         let response = try await client.embed(model: model, input: text)
         guard let firstEmbedding = response.embeddings.rawValue.first else { return [] }
         let queryEmbedding = firstEmbedding.map(Float.init)
 
-        var scored: [(entry: Entry, similarity: Float)] = entries.map { entry in
-            (entry, cosineSimilarity(queryEmbedding, entry.embedding))
+        let k = min(nResults, entries.count)
+
+        // Maintain a fixed-size min-heap of top-k (index, similarity) pairs
+        var topIndices = [Int](repeating: 0, count: k)
+        var topScores = [Float](repeating: -.greatestFiniteMagnitude, count: k)
+        var minIdx = 0 // index into topScores of current minimum
+
+        for (i, entry) in entries.enumerated() {
+            let sim = cosineSimilarity(queryEmbedding, entry.embedding)
+            if sim > topScores[minIdx] {
+                topIndices[minIdx] = i
+                topScores[minIdx] = sim
+                // Find new minimum
+                minIdx = 0
+                for j in 1..<k {
+                    if topScores[j] < topScores[minIdx] {
+                        minIdx = j
+                    }
+                }
+            }
         }
 
-        scored.sort { $0.similarity > $1.similarity }
+        // Sort the k winners by descending similarity
+        let ranked = (0..<k)
+            .sorted { topScores[$0] > topScores[$1] }
+            .filter { topScores[$0] > -.greatestFiniteMagnitude }
 
-        return scored.prefix(nResults).map { item in
-            SearchResult(
-                text: item.entry.text,
-                title: item.entry.title,
-                url: item.entry.url,
-                similarity: item.similarity
+        let results = ranked.map { j in
+            let entry = entries[topIndices[j]]
+            return SearchResult(
+                text: entry.text,
+                title: entry.title,
+                url: entry.url,
+                similarity: topScores[j]
             )
         }
+
+        let elapsed = clock.now - start
+        let topSim = results.first?.similarity ?? 0
+        Logger.vectorStore.info("Query returned \(results.count) results (top similarity: \(topSim)) in \(elapsed)")
+
+        return results
     }
 
     /// Total number of indexed chunks.
@@ -104,17 +174,13 @@ actor VectorStore {
 
     // MARK: - Private
 
+    /// SIMD-accelerated cosine similarity using Accelerate/vDSP.
     private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
-        var dot: Float = 0
-        var normA: Float = 0
-        var normB: Float = 0
-        for i in 0..<a.count {
-            dot += a[i] * b[i]
-            normA += a[i] * a[i]
-            normB += b[i] * b[i]
-        }
-        let denom = sqrt(normA) * sqrt(normB)
+        let dot = vDSP.dot(a, b)
+        let normA = sqrt(vDSP.sumOfSquares(a))
+        let normB = sqrt(vDSP.sumOfSquares(b))
+        let denom = normA * normB
         return denom > 0 ? dot / denom : 0
     }
 
